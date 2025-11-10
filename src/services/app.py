@@ -19,7 +19,7 @@ API_BASE = os.getenv("API_BASE", "http://localhost:8000")
 
 
 def run_api():
-    uvicorn.run(api_server.app, host="0.0.0.0", port=8000)
+    uvicorn.run(api_server.app, port=8000)
 
 
 # Run FastAPI in background when Streamlit starts
