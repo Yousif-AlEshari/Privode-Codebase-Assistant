@@ -1,67 +1,19 @@
-# import streamlit as st
-# import requests
-
-# # ────────────────────────────────
-# # CONFIG
-# # ────────────────────────────────
-# API_URL = "http://127.0.0.1:8000/ask"  # your FastAPI endpoint
-
-# st.set_page_config(
-#     page_title="Private Code Assistant",
-#     page_icon="💻",
-#     layout="centered")
-
-# # ────────────────────────────────
-# # UI HEADER
-# # ────────────────────────────────
-# st.title("💻 Private Codebase Assistant")
-# st.caption("Ask questions about your codebase — powered by ChromaDB + Groq LLM")
-
-# # Initialize chat history
-# if "messages" not in st.session_state:
-#     st.session_state.messages = []
-
-# # Display chat history
-# for msg in st.session_state.messages:
-#     with st.chat_message(msg["role"]):
-#         st.markdown(msg["content"])
-
-# # ────────────────────────────────
-# # USER INPUT
-# # ────────────────────────────────
-# if user_input := st.chat_input("Ask something about your codebase..."):
-#     st.session_state.messages.append({"role": "user", "content": user_input})
-#     with st.chat_message("user"):
-#         st.markdown(user_input)
-
-#     # Call FastAPI backend
-#     with st.chat_message("assistant"):
-#         with st.spinner("Thinking..."):
-#             try:
-#                 response = requests.post(
-#                     API_URL, json={"question": user_input})
-#                 if response.status_code == 200:
-#                     answer = response.json()["answer"]
-#                     st.markdown(answer)
-#                     st.session_state.messages.append(
-#                         {"role": "assistant", "content": answer})
-#                 else:
-#                     st.error(
-#                         f"API error {
-#                             response.status_code}: {
-#                             response.text}")
-#             except Exception as e:
-#                 st.error(f"Failed to connect to API: {e}")
-
-
 # app.py
-import streamlit as st
-import requests
-import json
-import os
-import threading
-import uvicorn
 from src.services import api_server
+import uvicorn
+import threading
+import os
+import json
+import requests
+import streamlit as st
+import sys
+import os
+sys.path.append(
+    os.path.abspath(
+        os.path.join(
+            os.path.dirname(__file__),
+            "../..")))
+
 
 API_BASE = os.getenv("API_BASE", "http://localhost:8000")
 
