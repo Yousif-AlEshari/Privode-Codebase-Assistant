@@ -1,0 +1,176 @@
+[
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\chunking.py",
+    "type": "FunctionDef",
+    "name": "_split_sentences",
+    "content": "def _split_sentences(text: str) -> List[str]:\n    \"\"\"\n    Very light sentence splitter. You can later swap for nltk/spacy if needed.\n    \"\"\"\n    text = re.sub(r\"\\s+\", \" \", (text or \"\")).strip()\n    if not text:\n        return []\n    # split on ., !, ? followed by a space and an uppercase or digit\n    parts = re.split(r\"(?<=[.!?])\\s+(?=[A-Z0-9])\", text)\n    # fallback if we ended up with giant spans\n    out: List[str] = []\n    for p in parts:\n        p = p.strip()\n        if not p:\n            continue\n        out.append(p)\n    return out"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\chunking.py",
+    "type": "FunctionDef",
+    "name": "_split_paragraphs",
+    "content": "def _split_paragraphs(text: str) -> List[str]:\n    paras = re.split(r\"\\n{2,}\", (text or \"\").strip())\n    return [p.strip() for p in paras if p.strip()]"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\chunking.py",
+    "type": "FunctionDef",
+    "name": "_rough_token_estimate",
+    "content": "def _rough_token_estimate(s: str) -> int:\n    \"\"\"\n    Super–rough token estimator; good enough for chunk sizing.\n    (≈ 4 chars per token as a heuristic)\n    \"\"\"\n    return max(1, int(len(s) / 4))"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\chunking.py",
+    "type": "ClassDef",
+    "name": "ChunkSet",
+    "content": "class ChunkSet:\n    doc_id: str\n    chunks: List[Dict[str, Any]]"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\chunking.py",
+    "type": "FunctionDef",
+    "name": "build_chunks_from_text",
+    "content": "def build_chunks_from_text(\n    full_text: str,\n    doc_id: str,\n    filename: str,\n    page_ranges: List[Tuple[int, int]] | None = None,\n    *,\n    target_tokens: int = 400,      # faster defaults\n    overlap: int = 20,\n    # \"unit\" is ignored by this splitter but kept for compatibility\n    unit: str = \"paragraph\",\n):\n    \"\"\"\n    Returns an object with a .chunks list; each element can be a dict with:\n      { \"id\": str, \"text\": str, \"metadata\": { doc_id, source, page, chunk_idx } }\n    Your backend already handles dict chunks.\n    \"\"\"\n\n    # Token counter for splitter (fast and matches your embedder fairly well)\n    try:\n        enc = tiktoken.get_encoding(\"cl100k_base\")\n        def count_tokens(s: str) -> int: return len(enc.encode(s))\n    except Exception:\n        # very fast fallback\n        def count_tokens(s: str) -> int: return max(1, len(s) // 4)\n\n    splitter = RecursiveCharacterTextSplitter(\n        chunk_size=int(target_tokens),\n        chunk_overlap=int(overlap),\n        length_function=count_tokens,\n        # prefer natural breaks first → fewer, better chunks\n        separators=[\"\\n\\n\", \"\\n\", \" \", \"\"],\n    )\n\n    # If you want per-page fidelity, pass real ranges and split each page separately.\n    # In your current code you already pass page_ranges like [(0, page_no), ...]\n    # but the chunk text comes as one string. We'll treat it as one piece and\n    # tag page=0.\n    parts = splitter.split_text(full_text)\n\n    chunks: List[Dict[str, Any]] = []\n    for i, text in enumerate(parts):\n        chunks.append({\n            \"id\": f\"{doc_id}::{i}\",\n            \"text\": text,\n            \"metadata\": {\n                \"doc_id\": doc_id,\n                \"source\": filename,\n                \"page\": 0,              # put a real page if you adapt to split per page\n                \"chunk_idx\": i,\n            }\n        })\n\n    # Wrap in a tiny object that mimics your current return (has .chunks)\n    class _ChunkSet:\n        def __init__(self, chunks): self.chunks = chunks\n    return _ChunkSet(chunks)"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\embedding.py",
+    "type": "FunctionDef",
+    "name": "_get_embed_fn",
+    "content": "def _get_embed_fn():\n    global _EMBED_FN\n    if _EMBED_FN is None:\n        _EMBED_FN = embedding_functions.SentenceTransformerEmbeddingFunction(\n            model_name=MODEL_NAME\n        )\n    return _EMBED_FN"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\embedding.py",
+    "type": "FunctionDef",
+    "name": "load_jsonl",
+    "content": "def load_jsonl(path: str) -> List[Dict[str, Any]]:\n    \"\"\"Load chunk records: each line must have id, text, metadata{doc_id,source,page,chunk_idx}.\"\"\"\n    items: List[Dict[str, Any]] = []\n    with open(path, \"r\", encoding=\"utf-8\") as f:\n        for lineno, line in enumerate(f, 1):\n            if not line.strip():\n                continue\n            rec = json.loads(line)\n            if not isinstance(rec, dict):\n                raise ValueError(f\"{path}:{lineno} is not a JSON object\")\n            if \"id\" not in rec or \"text\" not in rec or \"metadata\" not in rec:\n                raise ValueError(f\"{path}:{lineno} missing id/text/metadata\")\n            md = rec[\"metadata\"]\n            for k in (\"doc_id\", \"source\", \"page\", \"chunk_idx\"):\n                if k not in md:\n                    raise ValueError(f\"{path}:{lineno} missing metadata.{k}\")\n            items.append(rec)\n    return items"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\embedding.py",
+    "type": "FunctionDef",
+    "name": "_client",
+    "content": "def _client() -> chromadb.PersistentClient:\n    os.makedirs(PERSIST_DIR, exist_ok=True)\n    return chromadb.PersistentClient(\n        path=PERSIST_DIR,\n        settings=Settings(anonymized_telemetry=False),\n        # tenant=\"default_tenant\", database=\"default_database\",  # usually not\n        # required\n    )"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\embedding.py",
+    "type": "FunctionDef",
+    "name": "_safe_reset_persist_dir",
+    "content": "def _safe_reset_persist_dir(reason: str) -> None:\n    \"\"\"Rename the current persist dir to a dated backup and recreate it.\"\"\"\n    if not os.path.isdir(PERSIST_DIR):\n        return\n    stamp = datetime.datetime.now().strftime(\"%Y%m%d_%H%M%S\")\n    backup = f\"{PERSIST_DIR}.bak_{stamp}\"\n    try:\n        shutil.move(PERSIST_DIR, backup)\n        os.makedirs(PERSIST_DIR, exist_ok=True)\n        print(\n            f\"[Chroma] Persist dir reset due to {reason}. Backed up to: {backup}\")\n    except Exception as e:\n        print(f\"[Chroma] Failed to reset persist dir: {e}\")"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\embedding.py",
+    "type": "FunctionDef",
+    "name": "_get_or_create",
+    "content": "def _get_or_create(col_name: str, embed: bool):\n    client = _client()\n    embed_fn = _get_embed_fn() if embed else None\n\n    try:\n        if embed_fn is not None:\n            return client.get_or_create_collection(\n                name=col_name, embedding_function=embed_fn, metadata={\n                    \"hnsw:space\": \"cosine\"}\n            )\n        # read-only path (no embed fn attached)\n        try:\n            return client.get_collection(name=col_name)\n        except Exception:\n            # if it doesn't exist, create minimal collection\n            return client.get_or_create_collection(\n                name=col_name, metadata={\"hnsw:space\": \"cosine\"})\n    except KeyError as ke:\n        # classic 0.4 -> 0.5 sysdb-migration break: KeyError('_type')\n        if \"_type\" in str(ke):\n            _safe_reset_persist_dir(\"KeyError _type (old sysdb)\")\n            client = _client()\n            if embed_fn is not None:\n                return client.get_or_create_collection(\n                    name=col_name, embedding_function=embed_fn, metadata={\n                        \"hnsw:space\": \"cosine\"}\n                )\n            return client.get_or_create_collection(\n                name=col_name, metadata={\"hnsw:space\": \"cosine\"})\n        raise\n    except Exception as e:\n        # last-resort: if sysdb is corrupted for any other reason, reset\n        _safe_reset_persist_dir(f\"sysdb error: {e}\")\n        client = _client()\n        if embed_fn is not None:\n            return client.get_or_create_collection(\n                name=col_name, embedding_function=embed_fn, metadata={\n                    \"hnsw:space\": \"cosine\"}\n            )\n        return client.get_or_create_collection(\n            name=col_name, metadata={\"hnsw:space\": \"cosine\"})"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\embedding.py",
+    "type": "FunctionDef",
+    "name": "_collection",
+    "content": "def _collection(embed: bool = True):\n    return _get_or_create(COLLECTION_NAME, embed=embed)"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\embedding.py",
+    "type": "FunctionDef",
+    "name": "upsert_document",
+    "content": "def upsert_document(\n    jsonl_path: str,\n    collection=None,\n    replace: bool = True,\n    default_filename: Optional[str] = None,\n    default_filetype: Optional[str] = None,\n    default_size_bytes: Optional[int] = None,\n) -> Dict[str, Any]:\n    \"\"\"\n    Upsert a single document's chunks into Chroma.\n    Expects JSONL lines with:\n      - id: deterministic chunk id (e.g., \"docid::page::chunk_idx\")\n      - text: chunk text\n      - metadata: {doc_id, source, page, chunk_idx, ...}\n    If replace=True, deletes previous vectors for doc_id before upserting.\n    \"\"\"\n    records = load_jsonl(jsonl_path)\n    if not records:\n        return {\"doc_id\": None, \"count\": 0}\n\n    # All lines belong to the same document by design\n    doc_id = str(records[0][\"metadata\"][\"doc_id\"])\n\n    if collection is None:\n        collection = _collection(embed=True)\n\n    if replace:\n        try:\n            collection.delete(where={\"doc_id\": doc_id})\n        except Exception:\n            # some client versions return None / raise if nothing to delete\n            pass\n\n    # Inject defaults (non-destructive) for convenience in UIs\n    for r in records:\n        md = r[\"metadata\"]\n        if default_filename and \"filename\" not in md:\n            md[\"filename\"] = default_filename\n        if default_filetype and \"filetype\" not in md:\n            md[\"filetype\"] = default_filetype\n        if default_size_bytes is not None and \"size_bytes\" not in md:\n            md[\"size_bytes\"] = int(default_size_bytes)\n\n    ids = [str(r[\"id\"]) for r in records]\n    texts = [str(r[\"text\"]) for r in records]\n    metas = [r[\"metadata\"] for r in records]\n\n    collection.upsert(ids=ids, documents=texts, metadatas=metas)\n\n    return {\n        \"doc_id\": doc_id,\n        \"count\": len(ids),\n        \"collection\": COLLECTION_NAME,\n        \"persist_dir\": PERSIST_DIR,\n        \"replaced_prev\": bool(replace),\n    }"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\embedding.py",
+    "type": "FunctionDef",
+    "name": "delete_document",
+    "content": "def delete_document(doc_id: str) -> int:\n    \"\"\"Delete all vectors for one document. Returns a best-effort count.\"\"\"\n    col = _collection(embed=False)\n    res = col.delete(where={\"doc_id\": doc_id})\n    if isinstance(res, dict) and \"ids\" in res and res[\"ids\"]:\n        return len(res[\"ids\"])\n    return 0"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\embedding.py",
+    "type": "FunctionDef",
+    "name": "wipe_all",
+    "content": "def wipe_all() -> None:\n    \"\"\"Dangerous: deletes everything in the collection.\"\"\"\n    col = _collection(embed=False)\n    col.delete(where={})"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\embedding.py",
+    "type": "FunctionDef",
+    "name": "list_documents",
+    "content": "def list_documents(limit: int = 10000) -> List[Dict[str, Any]]:\n    \"\"\"\n    Aggregate distinct (doc_id, filename) counts by scanning metadatas.\n    \"\"\"\n    col = _collection(embed=False)\n    offset = 0\n    batch = 1000\n    counts: Dict[Tuple[str, str], int] = {}\n\n    while offset < limit:\n        res = col.get(include=[\"metadatas\"], limit=min(\n            batch, limit - offset), offset=offset)\n        metas = res.get(\"metadatas\") or []\n        if not metas:\n            break\n        for m in metas:\n            if not isinstance(m, dict):\n                continue\n            did = str(m.get(\"doc_id\") or \"\")\n            fn = str(m.get(\"filename\") or \"unknown\")\n            if did:\n                key = (did, fn)\n                counts[key] = counts.get(key, 0) + 1\n        got = len(metas)\n        offset += got\n        if got < batch:\n            break\n\n    out = [{\"doc_id\": did, \"filename\": fn, \"count\": cnt}\n           for (did, fn), cnt in sorted(counts.items(), key=lambda kv: kv[1], reverse=True)]\n    return out"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\embedding.py",
+    "type": "FunctionDef",
+    "name": "warm_embeddings",
+    "content": "def warm_embeddings():\n    _ = _get_embed_fn()"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\embedding.py",
+    "type": "FunctionDef",
+    "name": "embed",
+    "content": "def embed(jsonl_path: str) -> None:\n    \"\"\"\n    Legacy helper kept for compatibility with older call sites.\n    Performs replace=True upsert using an internal collection.\n    \"\"\"\n    summary = upsert_document(jsonl_path=jsonl_path,\n                              collection=None, replace=True)\n    print(\n        f\"Upserted {summary['count']} chunks for doc_id={summary['doc_id']} \"\n        f\"into '{summary['collection']}' @ {summary['persist_dir']} (replaced_prev={summary['replaced_prev']})\"\n    )"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\parsing.py",
+    "type": "ClassDef",
+    "name": "ParsedPage",
+    "content": "class ParsedPage:\n    page_number: int       # 0-based page index\n    text: str"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\parsing.py",
+    "type": "ClassDef",
+    "name": "ParsedDoc",
+    "content": "class ParsedDoc:\n    doc_id: str\n    filename: str\n    pages: List[ParsedPage]"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\parsing.py",
+    "type": "FunctionDef",
+    "name": "doc_id_from_path",
+    "content": "def doc_id_from_path(path: str) -> str:\n    st = os.stat(path)\n    h = hashlib.sha256()\n    h.update(os.path.basename(path).encode(\"utf-8\"))\n    h.update(str(st.st_size).encode(\"utf-8\"))\n    h.update(str(int(st.st_mtime)).encode(\"utf-8\"))\n    return h.hexdigest()[:16]"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\parsing.py",
+    "type": "FunctionDef",
+    "name": "doc_id_from_bytes",
+    "content": "def doc_id_from_bytes(name: str, data: bytes) -> str:\n    h = hashlib.sha256()\n    h.update(name.encode(\"utf-8\"))\n    h.update(data)\n    return h.hexdigest()[:16]"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\parsing.py",
+    "type": "FunctionDef",
+    "name": "parse_txt_structured",
+    "content": "def parse_txt_structured(path: str, filename: str) -> ParsedDoc:\n    with open(path, \"r\", encoding=\"utf-8\", errors=\"ignore\") as f:\n        text = f.read()\n    # Treat whole file as single “page 0”\n    pages = [ParsedPage(page_number=0, text=text)]\n    return ParsedDoc(doc_id=doc_id_from_path(path), filename=filename, pages=pages)"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\parsing.py",
+    "type": "FunctionDef",
+    "name": "parse_csv_structured",
+    "content": "def parse_csv_structured(path: str, filename: str) -> ParsedDoc:\n    # simple CSV as text (you can improve later)\n    with open(path, \"r\", encoding=\"utf-8\", errors=\"ignore\") as f:\n        text = f.read()\n    pages = [ParsedPage(page_number=0, text=text)]\n    return ParsedDoc(doc_id=doc_id_from_path(path), filename=filename, pages=pages)"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\parsing.py",
+    "type": "FunctionDef",
+    "name": "parse_docx_structured",
+    "content": "def parse_docx_structured(path: str, filename: str) -> ParsedDoc:\n    # Requires python-docx if you want real parsing; fallback to raw bytes\n    try:\n        from docx import Document\n        doc = Document(path)\n        text = \"\\n\".join([p.text for p in doc.paragraphs])\n    except Exception:\n        with open(path, \"rb\") as f:\n            text = f.read().decode(\"utf-8\", errors=\"ignore\")\n    pages = [ParsedPage(page_number=0, text=text)]\n    return ParsedDoc(doc_id=doc_id_from_path(path), filename=filename, pages=pages)"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\parsing.py",
+    "type": "FunctionDef",
+    "name": "parse_pdf_structured",
+    "content": "def parse_pdf_structured(path: str, filename: str) -> ParsedDoc:\n    # Minimal PDF reader; replace with your preferred library if needed\n    text_pages = []\n    try:\n        import PyPDF2  # pip install PyPDF2\n        with open(path, \"rb\") as f:\n            reader = PyPDF2.PdfReader(f)\n            for i, page in enumerate(reader.pages):\n                txt = page.extract_text() or \"\"\n                text_pages.append(ParsedPage(page_number=i, text=txt))\n    except Exception:\n        # Fallback: read bytes as text\n        with open(path, \"rb\") as f:\n            raw = f.read().decode(\"utf-8\", errors=\"ignore\")\n        text_pages = [ParsedPage(page_number=0, text=raw)]\n\n    return ParsedDoc(doc_id=doc_id_from_path(path), filename=filename, pages=text_pages)"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\schemas.py",
+    "type": "ClassDef",
+    "name": "Page",
+    "content": "class Page(BaseModel):\n    page_number: int\n    text: str"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\schemas.py",
+    "type": "ClassDef",
+    "name": "ParsedDocument",
+    "content": "class ParsedDocument(BaseModel):\n    doc_id: str\n    filename: str\n    filetype: str\n    pages: List[Page]\n    meta: Dict[str, str] = {}\n    created_at: datetime = Field(default_factory=datetime.utcnow)"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\schemas.py",
+    "type": "ClassDef",
+    "name": "Chunk",
+    "content": "class Chunk(BaseModel):\n    chunk_id: str\n    doc_id: str\n    chunk_index: int\n    text: str\n    token_estimate: int\n    char_start: int\n    char_end: int\n    page_start: int\n    page_end: int\n    meta: Dict[str, str] = {}"
+  },
+  {
+    "file": "D:\\Year4\\Apperenticeship\\Month 3\\Projects\\RAG System\\src\\schemas.py",
+    "type": "ClassDef",
+    "name": "ChunkSet",
+    "content": "class ChunkSet(BaseModel):\n    doc_id: str\n    chunks: List[Chunk]\n    meta: Dict[str, str] = {}"
+  }
+]

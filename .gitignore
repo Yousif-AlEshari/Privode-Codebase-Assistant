@@ -1,0 +1,32 @@
+# Python environment
+venv/
+.env
+*.env
+.venv/
+
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Data + local stores
+data/chroma_store/
+data/projects.json
+data/uploads/
+data/projects*
+data/ingestions/
+*.jsonl
+
+# IDE / OS clutter
+.DS_Store
+*.log
+*.tmp
+.vscode/
+.idea/
+
+# Secrets
+LLM_key*
+OPENAI_API_KEY*
+GOOGLE_API_KEY*
+GROQ_API_KEY*
