@@ -8,7 +8,7 @@ def ask_question(question: str, project_id: str |
     q_emb = embed_text(question)
     where = {}
     if project_id:
-        # ensure your upserts set 'project_id' in metadata
+        # ensure upserts set 'project_id' in metadata
         where["project_id"] = project_id
 
     matches = query(q_emb, top_k=top_k, where=where)

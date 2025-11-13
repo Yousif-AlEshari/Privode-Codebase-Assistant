@@ -1,4 +1,10 @@
 # app.py
+from src.services import api_server
+import uvicorn
+import threading
+import json
+import requests
+import streamlit as st
 import os
 import sys
 sys.path.append(
@@ -6,13 +12,6 @@ sys.path.append(
         os.path.join(
             os.path.dirname(__file__),
             "../..")))
-import streamlit as st
-import requests
-import json
-import threading
-import uvicorn
-from src.services import api_server
-
 
 
 API_BASE = os.getenv("API_BASE", "http://localhost:8000")
@@ -104,9 +103,32 @@ if menu == "Ask":
 elif menu == "Search (no LLM)":
     st.header("🔍 Quick search (no LLM)")
     projects = api_get("/projects")
-    project_options = {p["project_name"]: p["project_id"] for p in projects}
-    project_name = st.selectbox("Select project", list(project_options.keys()))
-    project_id = project_options[project_name]
+
+    if not projects:
+        st.warning(
+            "⚠️ No projects found. Please create one from the **Projects** tab first.")
+    else:
+        project_options = {p["project_name"]: p["project_id"]
+                           for p in projects}
+        project_name = st.selectbox(
+            "Select project", list(
+                project_options.keys()))
+        if project_name:
+            project_id = project_options[project_name]
+
+            q = st.text_area("Search keyword", key="search_text_area")
+            if st.button("Search"):
+                with st.spinner("Searching chunks..."):
+                    res = api_get(
+                        "/search",
+                        params={
+                            "q": q,
+                            "project_id": project_id})
+                st.write(f"Found {res.get('count', 0)} results.")
+                for r in res.get("results", []):
+                    st.markdown(
+                        f"**{r['rel_path']}** (chunk {r['chunk_idx']})")
+                    st.code(r["preview"], language="python")
 
     q = st.text_area("Search keyword", key="search_text_area")
     if st.button("Search"):
