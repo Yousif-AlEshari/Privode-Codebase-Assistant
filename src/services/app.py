@@ -1,10 +1,4 @@
 # app.py
-from src.services import api_server
-import uvicorn
-import threading
-import json
-import requests
-import streamlit as st
 import os
 import sys
 sys.path.append(
@@ -12,6 +6,13 @@ sys.path.append(
         os.path.join(
             os.path.dirname(__file__),
             "../..")))
+from src.services import api_server
+import uvicorn
+import threading
+import json
+import requests
+import streamlit as st
+
 
 
 API_BASE = os.getenv("API_BASE", "http://localhost:8000")
